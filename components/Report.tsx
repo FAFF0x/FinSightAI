@@ -1,6 +1,6 @@
 
-import React, { useRef, useState } from 'react';
-import { FinancialAnalysis, Language } from '../types';
+import React, { useRef, useState, useEffect } from 'react';
+import { FinancialAnalysis, Language, ChatMessage, CustomReportSection } from '../types';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -19,18 +19,28 @@ import {
   Zap,
   CheckCircle2,
   ArrowUpRight,
-  Presentation
+  Presentation,
+  MessageSquare,
+  Send,
+  Loader2,
+  Bot,
+  PlusCircle
 } from 'lucide-react';
-import { RevenueProfitChart, CostStructureChart, HealthRadarChart, MarginTrendChart } from './Charts';
+import { RevenueProfitChart, CostStructureChart, HealthRadarChart, MarginTrendChart, DynamicAnalysisChart } from './Charts';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import PptxGenJS from 'pptxgenjs';
 import clsx from 'clsx';
+import { queryFinancialAgent } from '../services/geminiService';
+import { ProcessedFile } from '../services/excelService';
 
 interface ReportProps {
   data: FinancialAnalysis;
+  files: ProcessedFile[];
   onReset: () => void;
+  onUpdateAnalysis: (updates: Partial<FinancialAnalysis>) => void; // CALLBACK FOR UPDATES
   language: Language;
+  apiKey?: string;
 }
 
 const translations = {
@@ -58,7 +68,11 @@ const translations = {
     revProfitTrend: "Trend Fatturato vs Utile",
     ebitdaMargin: "Analisi Margine EBITDA",
     costStructure: "Struttura Costi e Flussi",
-    liquidityAnalysis: "Analisi della Liquidità"
+    liquidityAnalysis: "Analisi della Liquidità",
+    chatTitle: "Assistente CFO & Editor",
+    chatSubtitle: "Chiedi di modificare il report, aggiungere sezioni o grafici.",
+    chatPlaceholder: "Esempio: 'Aggiungi un grafico sui costi del personale' o 'Riscrivi il sommario concentrandoti sui rischi'...",
+    chatSending: "Modifica in corso..."
   },
   en: {
     confidential: "Confidential",
@@ -84,7 +98,11 @@ const translations = {
     revProfitTrend: "Revenue vs Profit Trend",
     ebitdaMargin: "EBITDA Margin Analysis",
     costStructure: "Cost Structure & Cash Flow",
-    liquidityAnalysis: "Liquidity Analysis"
+    liquidityAnalysis: "Liquidity Analysis",
+    chatTitle: "CFO Assistant & Editor",
+    chatSubtitle: "Ask to modify the report, add sections, or generate charts.",
+    chatPlaceholder: "Example: 'Add a chart on personnel costs' or 'Rewrite the summary focusing on risks'...",
+    chatSending: "Updating report..."
   },
   es: {
     confidential: "Confidencial",
@@ -110,7 +128,11 @@ const translations = {
     revProfitTrend: "Tendencia Ingresos vs Beneficios",
     ebitdaMargin: "Análisis Margen EBITDA",
     costStructure: "Estructura de Costos y Flujo de Caja",
-    liquidityAnalysis: "Análisis de Liquidez"
+    liquidityAnalysis: "Análisis de Liquidez",
+    chatTitle: "Asistente CFO y Editor",
+    chatSubtitle: "Solicite modificar el informe, añadir secciones o gráficos.",
+    chatPlaceholder: "Ejemplo: 'Añade un gráfico de costos de personal'...",
+    chatSending: "Actualizando..."
   },
   fr: {
     confidential: "Confidentiel",
@@ -136,7 +158,11 @@ const translations = {
     revProfitTrend: "Tendance Revenus vs Bénéfices",
     ebitdaMargin: "Analyse Marge EBITDA",
     costStructure: "Structure des Coûts et Flux de Trésorerie",
-    liquidityAnalysis: "Analyse de Liquidité"
+    liquidityAnalysis: "Analyse de Liquidité",
+    chatTitle: "Assistant CFO & Éditeur",
+    chatSubtitle: "Demandez de modifier le rapport ou d'ajouter des graphiques.",
+    chatPlaceholder: "Exemple: 'Ajoutez un graphique des coûts de personnel'...",
+    chatSending: "Mise à jour..."
   },
   de: {
     confidential: "Vertraulich",
@@ -162,18 +188,74 @@ const translations = {
     revProfitTrend: "Umsatz vs. Gewinn Trend",
     ebitdaMargin: "EBITDA Marge Analyse",
     costStructure: "Kostenstruktur & Cashflow",
-    liquidityAnalysis: "Liquiditätsanalyse"
+    liquidityAnalysis: "Liquiditätsanalyse",
+    chatTitle: "CFO-Assistent & Editor",
+    chatSubtitle: "Bericht ändern, Abschnitte oder Diagramme hinzufügen.",
+    chatPlaceholder: "Beispiel: 'Fügen Sie ein Diagramm zu den Personalkosten hinzu'...",
+    chatSending: "Aktualisiere..."
   }
 };
 
-export const Report: React.FC<ReportProps> = ({ data, onReset, language }) => {
+export const Report: React.FC<ReportProps> = ({ data, files, onReset, onUpdateAnalysis, language, apiKey }) => {
   const reportRef = useRef<HTMLDivElement>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isExportingPpt, setIsExportingPpt] = useState(false);
   
+  // Chat State
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
+  const [inputQuery, setInputQuery] = useState("");
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  
   const t = translations[language] || translations.it;
 
-  // Helper to capture a DOM element as an image
+  const scrollToBottom = () => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [chatHistory]);
+
+  const handleSendChat = async () => {
+    if (!inputQuery.trim() || isChatLoading) return;
+
+    const userMsg: ChatMessage = { role: 'user', content: inputQuery, timestamp: Date.now() };
+    setChatHistory(prev => [...prev, userMsg]);
+    setInputQuery("");
+    setIsChatLoading(true);
+
+    try {
+        const response = await queryFinancialAgent(files, data, chatHistory, userMsg.content, language, apiKey);
+        
+        const botMsg: ChatMessage = {
+            role: 'assistant',
+            content: response.answer,
+            timestamp: Date.now()
+        };
+        setChatHistory(prev => [...prev, botMsg]);
+
+        // HANDLE REPORT MODIFICATION
+        if (response.updatedAnalysis) {
+             onUpdateAnalysis(response.updatedAnalysis);
+        }
+
+    } catch (error) {
+        console.error("Chat Error", error);
+        setChatHistory(prev => [...prev, { role: 'assistant', content: "Mi dispiace, si è verificato un errore durante l'aggiornamento del report.", timestamp: Date.now() }]);
+    } finally {
+        setIsChatLoading(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          handleSendChat();
+      }
+  };
+
   const captureSection = async (element: HTMLElement, scale = 2) => {
     return await html2canvas(element, {
       scale: scale,
@@ -190,33 +272,22 @@ export const Report: React.FC<ReportProps> = ({ data, onReset, language }) => {
     
     try {
       const container = reportRef.current;
-      // Get all sections marked for export
       const sections = container.querySelectorAll<HTMLElement>('.report-section');
       
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = pdf.internal.pageSize.getHeight();
 
       for (let i = 0; i < sections.length; i++) {
         const section = sections[i];
-        
-        // Add a new page for subsequent sections
         if (i > 0) pdf.addPage();
-
         const canvas = await captureSection(section);
         const imgData = canvas.toDataURL('image/png');
-        
-        // Calculate dimensions to fit width, maintaining aspect ratio
         const imgProps = pdf.getImageProperties(imgData);
         const ratio = imgProps.width / imgProps.height;
         const width = pdfWidth;
         const height = width / ratio;
-
-        // If height > page height, we might need to scale down further or accept it fits logic
-        // For this specific design, sections are designed to fit on a page usually.
         pdf.addImage(imgData, 'PNG', 0, 0, width, height);
       }
-
       pdf.save(`FinSight_${data.companyName.replace(/\s+/g, '_')}.pdf`);
     } catch (err) {
       console.error(err);
@@ -241,24 +312,18 @@ export const Report: React.FC<ReportProps> = ({ data, onReset, language }) => {
 
         for (let i = 0; i < sections.length; i++) {
             const section = sections[i];
-            
-            // Capture high quality image of the section
             const canvas = await captureSection(section, 2); 
             const imgData = canvas.toDataURL('image/png');
-
             const slide = pres.addSlide();
-            
-            // Add the image to the slide, fitting it nicely
             slide.addImage({
                 data: imgData,
                 x: 0,
                 y: 0,
                 w: '100%',
                 h: '100%',
-                sizing: { type: 'contain', align: 'center', valign: 'middle' } // Ensures no cutting
+                sizing: { type: 'contain', align: 'center', valign: 'middle' } 
             });
         }
-
         await pres.writeFile({ fileName: `FinSight_${data.companyName.replace(/\s+/g, '_')}.pptx` });
 
     } catch (err) {
@@ -295,10 +360,9 @@ export const Report: React.FC<ReportProps> = ({ data, onReset, language }) => {
                 {isExportingPdf ? t.genPDF : <><Download size={18} /> {t.exportPDF}</>}
             </button>
         </div>
-       
       </div>
 
-      {/* Report Container - Logic: Each 'report-section' becomes a Page/Slide */}
+      {/* Report Container */}
       <div ref={reportRef} className="space-y-8">
         
         {/* === SECTION 1: COVER === */}
@@ -514,6 +578,32 @@ export const Report: React.FC<ReportProps> = ({ data, onReset, language }) => {
             </div>
         </div>
 
+        {/* === NEW: CUSTOM SECTIONS (GENERATED BY CHAT) === */}
+        {data.customSections?.map((section, idx) => (
+             <div key={section.id || idx} className="report-section bg-white shadow-xl rounded-none sm:rounded-2xl overflow-hidden border border-slate-200 p-12 animate-in fade-in slide-in-from-bottom-8">
+                <div className="flex items-center gap-4 mb-8">
+                    <div className="p-3 bg-indigo-100 rounded-xl text-indigo-600"><PlusCircle size={32} /></div>
+                    <h3 className="text-3xl font-bold text-slate-800">{section.title}</h3>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+                    <div className="flex flex-col justify-center">
+                        <div className="prose prose-lg prose-slate text-justify">
+                            <p className="whitespace-pre-wrap leading-relaxed">{section.content}</p>
+                        </div>
+                    </div>
+                     <div className="space-y-8">
+                        {section.chart && (
+                            <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100 shadow-inner">
+                                <h4 className="text-sm font-bold text-slate-500 uppercase mb-6">{section.chart.title}</h4>
+                                <DynamicAnalysisChart chartData={section.chart} />
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+        ))}
+
         {/* === SECTION 7: STRATEGIC CONCLUSION === */}
         <div className="report-section bg-slate-900 text-white shadow-xl rounded-none sm:rounded-2xl overflow-hidden border border-slate-800 p-12 flex flex-col justify-center min-h-[600px]">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-16">
@@ -550,6 +640,85 @@ export const Report: React.FC<ReportProps> = ({ data, onReset, language }) => {
                 <p className="text-slate-500 text-sm">
                     {t.generatedBy} • {new Date().getFullYear()} • {t.confidential}
                 </p>
+            </div>
+        </div>
+        
+        {/* === SECTION 8: CHAT ASSISTANT (No Print) === */}
+        <div className="report-section no-print bg-gradient-to-br from-blue-600 to-indigo-700 shadow-2xl rounded-none sm:rounded-2xl overflow-hidden border border-blue-500 text-white flex flex-col h-[600px]">
+            {/* Chat Header */}
+            <div className="p-6 border-b border-white/10 bg-white/5 flex items-center gap-4">
+                <div className="p-3 bg-white/10 rounded-full">
+                    <Bot size={28} />
+                </div>
+                <div>
+                    <h3 className="text-xl font-bold">{t.chatTitle}</h3>
+                    <p className="text-blue-100 text-sm">{t.chatSubtitle}</p>
+                </div>
+            </div>
+
+            {/* Chat Messages */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-white/5 scrollbar-thin scrollbar-thumb-white/20">
+                {chatHistory.length === 0 && (
+                    <div className="flex flex-col items-center justify-center h-full text-center text-blue-200 opacity-70">
+                        <MessageSquare size={48} className="mb-4" />
+                        <p className="max-w-md">
+                            {t.chatPlaceholder}
+                        </p>
+                    </div>
+                )}
+                
+                {chatHistory.map((msg, i) => (
+                    <div key={i} className={clsx("flex gap-4 animate-in fade-in slide-in-from-bottom-2", msg.role === 'user' ? "flex-row-reverse" : "")}>
+                        <div className={clsx(
+                            "w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0",
+                            msg.role === 'user' ? "bg-white text-blue-600" : "bg-blue-500 text-white"
+                        )}>
+                            {msg.role === 'user' ? <span className="font-bold">U</span> : <Bot size={20} />}
+                        </div>
+                        <div className={clsx(
+                            "max-w-[80%] rounded-2xl p-4 shadow-lg",
+                            msg.role === 'user' ? "bg-white text-slate-800" : "bg-blue-800/80 border border-blue-500/30 text-white"
+                        )}>
+                            <div className="prose prose-invert prose-sm max-w-none">
+                                <p className="whitespace-pre-wrap">{msg.content}</p>
+                            </div>
+                        </div>
+                    </div>
+                ))}
+                
+                {isChatLoading && (
+                    <div className="flex gap-4">
+                         <div className="w-10 h-10 rounded-full bg-blue-500 text-white flex items-center justify-center flex-shrink-0">
+                            <Bot size={20} />
+                        </div>
+                        <div className="bg-blue-800/80 border border-blue-500/30 text-white rounded-2xl p-4 flex items-center gap-2">
+                            <Loader2 size={16} className="animate-spin" /> {t.chatSending}
+                        </div>
+                    </div>
+                )}
+                <div ref={chatEndRef} />
+            </div>
+
+            {/* Chat Input */}
+            <div className="p-4 bg-white/10 border-t border-white/10">
+                <div className="relative flex items-center gap-2">
+                    <input 
+                        type="text" 
+                        value={inputQuery}
+                        onChange={(e) => setInputQuery(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        placeholder={t.chatPlaceholder}
+                        className="w-full bg-white/10 border border-white/20 text-white placeholder-blue-200/50 rounded-xl py-3 pl-4 pr-12 focus:ring-2 focus:ring-white/30 focus:border-transparent outline-none transition-all"
+                        disabled={isChatLoading}
+                    />
+                    <button 
+                        onClick={handleSendChat}
+                        disabled={!inputQuery.trim() || isChatLoading}
+                        className="absolute right-2 p-2 bg-blue-500 hover:bg-blue-400 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        <Send size={18} />
+                    </button>
+                </div>
             </div>
         </div>
       </div>

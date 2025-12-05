@@ -18,6 +18,8 @@ const App: React.FC = () => {
   const [manualKey, setManualKey] = useState<string>('');
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [currentFiles, setCurrentFiles] = useState<File[]>([]);
+  // We need to keep processed files in memory to pass them to Chat
+  const [processedData, setProcessedData] = useState<any[]>([]);
 
   const handleFilesSelect = async (files: File[]) => {
     setCurrentFiles(files);
@@ -30,6 +32,7 @@ const App: React.FC = () => {
     try {
       // 1. Parse All Files (Excel to JSON or PDF to Base64)
       const processedFiles = await processAllFiles(files);
+      setProcessedData(processedFiles); // Save for Chat context
       
       // 2. Analyze with AI (Pass selected language and optional key)
       setStatus('analyzing');
@@ -65,6 +68,26 @@ const App: React.FC = () => {
     setAnalysis(null);
     setError(null);
     setCurrentFiles([]);
+    setProcessedData([]);
+  };
+
+  const handleAnalysisUpdate = (updates: Partial<FinancialAnalysis>) => {
+      setAnalysis(prev => {
+          if (!prev) return null;
+          // Merge logic
+          // If customSections are being updated, we append or replace based on ID?
+          // For simplicity, if the AI sends customSections, we just merge arrays or replace.
+          // But here we rely on the AI sending the *full* array of custom sections if it modifies it, 
+          // or we just concat if it's a new entry.
+          
+          // Let's assume strict merge:
+          const newAnalysis = { ...prev, ...updates };
+          
+          // Special handling for arrays if we wanted to append, but simpler to let AI handle full array replacement for lists like 'strategicInsights' if it wants to edit them.
+          // For customSections, let's allow intelligent merging if needed, but simple overwrite is safer for consistency.
+          
+          return newAnalysis;
+      });
   };
 
   return (
@@ -95,7 +118,7 @@ const App: React.FC = () => {
                     <option value="de">Deutsch</option>
                   </select>
               </div>
-              <span className="text-xs font-medium px-3 py-1 bg-slate-100 rounded-full text-slate-500">v1.4</span>
+              <span className="text-xs font-medium px-3 py-1 bg-slate-100 rounded-full text-slate-500">v1.5</span>
             </div>
           </div>
         </div>
@@ -144,8 +167,8 @@ const App: React.FC = () => {
                     <p className="text-sm text-slate-500">Visualizzazioni automatiche di trend e anomalie storiche.</p>
                 </div>
                  <div className="p-4">
-                    <div className="font-bold text-slate-800 mb-1">Report Export</div>
-                    <p className="text-sm text-slate-500">Scarica presentazioni PDF pronte per il board.</p>
+                    <div className="font-bold text-slate-800 mb-1">CFO Assistant</div>
+                    <p className="text-sm text-slate-500">Chatta con i dati per chiedere nuovi grafici e dettagli.</p>
                 </div>
             </div>
           </div>
@@ -156,7 +179,14 @@ const App: React.FC = () => {
         )}
 
         {status === 'complete' && analysis && (
-          <Report data={analysis} onReset={handleReset} language={language} />
+          <Report 
+            data={analysis} 
+            files={processedData} // Passing raw data for Chat context
+            onReset={handleReset} 
+            onUpdateAnalysis={handleAnalysisUpdate}
+            language={language} 
+            apiKey={manualKey} // Passing key for Chat requests
+        />
         )}
 
         {status === 'error' && (

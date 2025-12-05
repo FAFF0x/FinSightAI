@@ -1,3 +1,4 @@
+
 import React from 'react';
 import {
   LineChart,
@@ -19,11 +20,73 @@ import {
   PolarRadiusAxis,
   ComposedChart
 } from 'recharts';
-import { ChartPoint, RadarPoint } from '../types';
+import { ChartPoint, RadarPoint, DynamicChartData } from '../types';
 
 interface ChartsProps {
   data: any[];
 }
+
+// --- NEW DYNAMIC CHART COMPONENT ---
+export const DynamicAnalysisChart: React.FC<{ chartData: DynamicChartData }> = ({ chartData }) => {
+  const commonProps = {
+    data: chartData.data,
+    margin: { top: 10, right: 30, left: 0, bottom: 0 }
+  };
+
+  const renderChart = () => {
+    switch (chartData.type) {
+      case 'line':
+        return (
+          <LineChart {...commonProps}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+            <XAxis dataKey={chartData.xAxisKey} stroke="#64748b" tickLine={false} axisLine={false} />
+            <YAxis stroke="#64748b" tickLine={false} axisLine={false} />
+            <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+            <Legend />
+            {chartData.dataKeys.map((k, i) => (
+              <Line key={i} type="monotone" dataKey={k.key} name={k.name} stroke={k.color} strokeWidth={3} dot={{ r: 4 }} />
+            ))}
+          </LineChart>
+        );
+      case 'area':
+        return (
+          <AreaChart {...commonProps}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+            <XAxis dataKey={chartData.xAxisKey} stroke="#64748b" tickLine={false} axisLine={false} />
+            <YAxis stroke="#64748b" tickLine={false} axisLine={false} />
+            <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+            <Legend />
+            {chartData.dataKeys.map((k, i) => (
+              <Area key={i} type="monotone" dataKey={k.key} name={k.name} stroke={k.color} fill={k.color} fillOpacity={0.3} />
+            ))}
+          </AreaChart>
+        );
+      case 'bar':
+      default:
+        return (
+          <BarChart {...commonProps}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+            <XAxis dataKey={chartData.xAxisKey} stroke="#64748b" tickLine={false} axisLine={false} />
+            <YAxis stroke="#64748b" tickLine={false} axisLine={false} />
+            <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+            <Legend />
+            {chartData.dataKeys.map((k, i) => (
+              <Bar key={i} dataKey={k.key} name={k.name} fill={k.color} radius={[4, 4, 0, 0]} />
+            ))}
+          </BarChart>
+        );
+    }
+  };
+
+  return (
+    <div className="h-[350px] w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        {renderChart()}
+      </ResponsiveContainer>
+    </div>
+  );
+};
+// -----------------------------------
 
 export const HealthRadarChart: React.FC<{ data: RadarPoint[] }> = ({ data }) => {
   return (

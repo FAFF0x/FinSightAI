@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { FinancialAnalysis, Language } from "../types";
+import { FinancialAnalysis, Language, ChatResponse, ChatMessage } from "../types";
 import { ProcessedFile } from "./excelService";
 
 const languageMap: Record<Language, string> = {
@@ -11,22 +11,14 @@ const languageMap: Record<Language, string> = {
   de: "Deutsch"
 };
 
-export const analyzeFinancialData = async (
-  filesInput: ProcessedFile[], 
-  language: Language = 'it',
-  manualApiKey?: string
-): Promise<FinancialAnalysis> => {
-  
-  // 1. Prioritize Manual Key
+// Helper to get API Key (reused logic)
+const getApiKey = (manualApiKey?: string) => {
   let apiKey = manualApiKey;
-
-  // 2. Check Environment Variables aggressively (with try-catch for bundlers)
   if (!apiKey) { try { apiKey = process.env.REACT_APP_API_KEY; } catch (e) {} }
   if (!apiKey) { try { apiKey = process.env.NEXT_PUBLIC_API_KEY; } catch (e) {} }
   if (!apiKey) { try { apiKey = process.env.VITE_API_KEY; } catch (e) {} }
   if (!apiKey) { try { apiKey = process.env.API_KEY; } catch (e) {} }
 
-  // 3. Check Vite import.meta.env
   if (!apiKey) {
     try {
       // @ts-ignore
@@ -36,15 +28,43 @@ export const analyzeFinancialData = async (
       }
     } catch (e) { /* ignore */ }
   }
+  return apiKey;
+};
 
-  if (!apiKey) {
-    throw new Error("MISSING_API_KEY");
+// Helper to build file parts for prompt
+const buildFileParts = (filesInput: ProcessedFile[]) => {
+  const fileParts: any[] = [];
+  for (const file of filesInput) {
+      if (file.mimeType === 'application/pdf') {
+          fileParts.push({ text: `\n\n--- START OF FILE: "${file.fileName}" (PDF) ---\n` });
+          fileParts.push({ 
+              inlineData: { 
+                  mimeType: 'application/pdf', 
+                  data: file.data 
+              } 
+          });
+      } else {
+          const content = file.data.length > 500000 ? file.data.substring(0, 500000) + "...(truncated)" : file.data;
+          fileParts.push({ 
+              text: `\n\n--- START OF FILE: "${file.fileName}" (DATA) ---\n${content}\n--- END OF FILE ---\n` 
+          });
+      }
   }
+  return fileParts;
+};
+
+export const analyzeFinancialData = async (
+  filesInput: ProcessedFile[], 
+  language: Language = 'it',
+  manualApiKey?: string
+): Promise<FinancialAnalysis> => {
+  
+  const apiKey = getApiKey(manualApiKey);
+  if (!apiKey) throw new Error("MISSING_API_KEY");
 
   const ai = new GoogleGenAI({ apiKey });
   const targetLang = languageMap[language];
 
-  // Prompt Construction
   let promptText = `
     Role: You are "FinSight CFO", a world-class Virtual CFO.
     
@@ -79,29 +99,8 @@ export const analyzeFinancialData = async (
     - Growth (Translate to ${targetLang})
   `;
 
-  // Build the contents array
   const promptPart = { text: promptText };
-  const fileParts: any[] = [];
-
-  for (const file of filesInput) {
-      if (file.mimeType === 'application/pdf') {
-          // For PDFs, we add a text label then the inline data
-          fileParts.push({ text: `\n\n--- START OF FILE: "${file.fileName}" (PDF) ---\n` });
-          fileParts.push({ 
-              inlineData: { 
-                  mimeType: 'application/pdf', 
-                  data: file.data 
-              } 
-          });
-      } else {
-          // For Text/Excel, we wrap the content in headers
-          // Truncate individual text files if they are massive to save context, though 1M is large.
-          const content = file.data.length > 500000 ? file.data.substring(0, 500000) + "...(truncated)" : file.data;
-          fileParts.push({ 
-              text: `\n\n--- START OF FILE: "${file.fileName}" (DATA) ---\n${content}\n--- END OF FILE ---\n` 
-          });
-      }
-  }
+  const fileParts = buildFileParts(filesInput);
 
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash",
@@ -215,3 +214,92 @@ export const analyzeFinancialData = async (
     throw new Error("Error in AI response format.");
   }
 };
+
+// --- MODIFIED FUNCTION: CHAT WITH AGENT (MODIFIES REPORT) ---
+
+export const queryFinancialAgent = async (
+    filesInput: ProcessedFile[], 
+    currentAnalysis: FinancialAnalysis,
+    history: ChatMessage[],
+    userQuestion: string,
+    language: Language = 'it',
+    manualApiKey?: string
+): Promise<ChatResponse> => {
+
+    const apiKey = getApiKey(manualApiKey);
+    if (!apiKey) throw new Error("MISSING_API_KEY");
+  
+    const ai = new GoogleGenAI({ apiKey });
+    const targetLang = languageMap[language];
+
+    // Build context from history
+    const historyText = history.map(h => `${h.role.toUpperCase()}: ${h.content}`).join("\n");
+
+    const promptText = `
+        Role: You are "FinSight CFO", the editor of the financial report.
+        
+        GOAL:
+        The user wants to either ask a question OR MODIFY the report structure/content.
+        
+        CONTEXT:
+        Current Analysis JSON: ${JSON.stringify(currentAnalysis).substring(0, 10000)}... (truncated context)
+        
+        USER REQUEST:
+        "${userQuestion}"
+        
+        INSTRUCTIONS:
+        1. If the user asks a question, answer in 'answer'.
+        2. IF the user asks to CHANGE something (e.g., "Add a chart about X", "Rewrite the summary", "Add a section about Risk"), you MUST return the 'updatedAnalysis' object.
+        3. 'updatedAnalysis' should be a partial JSON of 'FinancialAnalysis'. I will merge it into the main state.
+        
+        EXAMPLES OF MODIFICATIONS:
+        - "Add a chart regarding labor costs":
+          updatedAnalysis: { 
+            customSections: [ ...currentAnalysis.customSections, { id: "new_1", title: "Labor Cost Analysis", content: "...", chart: { ... } } ] 
+          }
+        - "Rewrite Executive Summary to be shorter":
+          updatedAnalysis: { executiveSummary: "New shorter text..." }
+        - "Add a strategic insight":
+          updatedAnalysis: { strategicInsights: [...current, "New Insight"] }
+        
+        CHART DATA STRUCTURE (inside customSections):
+        "chart": {
+             "title": "Title",
+             "type": "bar" | "line" | "area" | "composed",
+             "xAxisKey": "period", 
+             "data": [{ "period": "2023", "value": 100 }],
+             "dataKeys": [{ "key": "value", "color": "#2563eb", "name": "Label" }]
+        }
+
+        OUTPUT JSON FORMAT:
+        {
+          "answer": "Text reply to user (e.g., 'I have updated the report with a new section regarding...')",
+          "updatedAnalysis": { ...partial fields to update... }
+        }
+    `;
+
+    const promptPart = { text: promptText };
+    const fileParts = buildFileParts(filesInput);
+
+    const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: [
+            {
+                parts: [promptPart, ...fileParts]
+            }
+        ],
+        config: {
+            temperature: 0.3,
+            responseMimeType: "application/json",
+        }
+    });
+
+    if (!response.text) throw new Error("No response from AI agent");
+
+    try {
+      return JSON.parse(response.text) as ChatResponse;
+    } catch (e) {
+      console.error("Chat JSON Error", response.text);
+      throw new Error("Invalid response format from Chat Agent");
+    }
+}
