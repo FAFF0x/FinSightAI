@@ -20,35 +20,44 @@ export const analyzeFinancialData = async (
   // 1. Prioritize Manual Key (if user entered one in UI)
   let apiKey = manualApiKey;
 
-  // 2. If no manual key, check Environment Variables explicitly.
-  // CRITICAL: We must access these properties STATICALLY (e.g., process.env.API_KEY) 
-  // and NOT dynamically (e.g., process.env[key]) so that bundlers (Vite, Webpack, Vercel) 
-  // can detect and replace them with the actual values during build time.
-  
+  // 2. Check Environment Variables aggressively.
+  // We use individual try-catch blocks to allow bundlers (Vite/Webpack/Vercel)
+  // to perform string replacement on specific keys (e.g. replacing "process.env.API_KEY" with "AIza...")
+  // even if the "process" object itself is undefined in the browser runtime.
+
   if (!apiKey) {
     try {
-      // Check standard React/Node env var
-      if (typeof process !== 'undefined' && process.env) {
-        apiKey = process.env.REACT_APP_API_KEY || 
-                 process.env.NEXT_PUBLIC_API_KEY || 
-                 process.env.API_KEY;
-      }
-    } catch (e) {
-      // Ignore errors if process is not defined
-    }
+      apiKey = process.env.REACT_APP_API_KEY;
+    } catch (e) { /* ignore ReferenceError */ }
   }
 
   if (!apiKey) {
     try {
-      // Check Vite specific env var
+      apiKey = process.env.NEXT_PUBLIC_API_KEY;
+    } catch (e) { /* ignore ReferenceError */ }
+  }
+
+  if (!apiKey) {
+    try {
+      apiKey = process.env.VITE_API_KEY;
+    } catch (e) { /* ignore ReferenceError */ }
+  }
+
+  if (!apiKey) {
+    try {
+      apiKey = process.env.API_KEY;
+    } catch (e) { /* ignore ReferenceError */ }
+  }
+
+  // 3. Check Vite import.meta.env
+  if (!apiKey) {
+    try {
       // @ts-ignore
       if (typeof import.meta !== 'undefined' && import.meta.env) {
         // @ts-ignore
         apiKey = import.meta.env.VITE_API_KEY || import.meta.env.API_KEY;
       }
-    } catch (e) {
-      // Ignore errors if import.meta is not defined
-    }
+    } catch (e) { /* ignore */ }
   }
 
   if (!apiKey) {
