@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
 
 export interface ProcessedFile {
+  fileName: string;
   mimeType: string;
   data: string;
 }
@@ -28,6 +29,7 @@ export const processFinancialFile = async (file: File): Promise<ProcessedFile> =
   if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
     const base64Data = await fileToBase64(file);
     return {
+      fileName: file.name,
       mimeType: 'application/pdf',
       data: base64Data
     };
@@ -42,7 +44,7 @@ export const processFinancialFile = async (file: File): Promise<ProcessedFile> =
         const workbook = XLSX.read(data, { type: 'array', cellDates: true });
         
         if (workbook.SheetNames.length === 0) {
-            reject(new Error("Il file Excel non contiene fogli."));
+            reject(new Error(`Il file ${file.name} non contiene fogli.`));
             return;
         }
 
@@ -68,11 +70,12 @@ export const processFinancialFile = async (file: File): Promise<ProcessedFile> =
         }
 
         if (combinedData.trim().length === 0) {
-            reject(new Error("Il file Excel sembra vuoto o non leggibile (tutti i fogli sono vuoti)."));
+            reject(new Error(`Il file ${file.name} sembra vuoto.`));
             return;
         }
 
         resolve({
+          fileName: file.name,
           mimeType: 'text/plain',
           data: combinedData
         });
@@ -83,4 +86,8 @@ export const processFinancialFile = async (file: File): Promise<ProcessedFile> =
     reader.onerror = (error) => reject(new Error("Errore durante la lettura del file."));
     reader.readAsArrayBuffer(file);
   });
+};
+
+export const processAllFiles = async (files: File[]): Promise<ProcessedFile[]> => {
+    return Promise.all(files.map(file => processFinancialFile(file)));
 };

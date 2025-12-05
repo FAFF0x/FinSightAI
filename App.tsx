@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { FileUpload } from './components/FileUpload';
 import { LoadingScreen } from './components/LoadingScreen';
 import { Report } from './components/Report';
-import { processFinancialFile } from './services/excelService';
+import { processAllFiles } from './services/excelService';
 import { analyzeFinancialData } from './services/geminiService';
 import { AnalysisStatus, FinancialAnalysis, Language } from './types';
 import { BarChart3, Globe, AlertTriangle, Key } from 'lucide-react';
@@ -17,23 +17,23 @@ const App: React.FC = () => {
   // State for fallback manual API key
   const [manualKey, setManualKey] = useState<string>('');
   const [showKeyInput, setShowKeyInput] = useState(false);
-  const [currentFile, setCurrentFile] = useState<File | null>(null);
+  const [currentFiles, setCurrentFiles] = useState<File[]>([]);
 
-  const handleFileSelect = async (file: File) => {
-    setCurrentFile(file);
-    await runAnalysis(file, manualKey);
+  const handleFilesSelect = async (files: File[]) => {
+    setCurrentFiles(files);
+    await runAnalysis(files, manualKey);
   };
 
-  const runAnalysis = async (file: File, key?: string) => {
+  const runAnalysis = async (files: File[], key?: string) => {
     setStatus('parsing');
     setError(null);
     try {
-      // 1. Parse File (Excel to JSON or PDF to Base64)
-      const processedFile = await processFinancialFile(file);
+      // 1. Parse All Files (Excel to JSON or PDF to Base64)
+      const processedFiles = await processAllFiles(files);
       
       // 2. Analyze with AI (Pass selected language and optional key)
       setStatus('analyzing');
-      const result = await analyzeFinancialData(processedFile, language, key);
+      const result = await analyzeFinancialData(processedFiles, language, key);
       
       // 3. Complete
       setAnalysis(result);
@@ -53,10 +53,10 @@ const App: React.FC = () => {
   };
 
   const handleManualKeySubmit = () => {
-    if (manualKey.trim().length > 10 && currentFile) {
-        runAnalysis(currentFile, manualKey);
+    if (manualKey.trim().length > 10 && currentFiles.length > 0) {
+        runAnalysis(currentFiles, manualKey);
     } else {
-        alert("Inserisci una chiave valida.");
+        alert("Inserisci una chiave valida e assicurati di aver selezionato i file.");
     }
   };
 
@@ -64,7 +64,7 @@ const App: React.FC = () => {
     setStatus('idle');
     setAnalysis(null);
     setError(null);
-    setCurrentFile(null);
+    setCurrentFiles([]);
   };
 
   return (
@@ -95,7 +95,7 @@ const App: React.FC = () => {
                     <option value="de">Deutsch</option>
                   </select>
               </div>
-              <span className="text-xs font-medium px-3 py-1 bg-slate-100 rounded-full text-slate-500">v1.3</span>
+              <span className="text-xs font-medium px-3 py-1 bg-slate-100 rounded-full text-slate-500">v1.4</span>
             </div>
           </div>
         </div>
@@ -110,7 +110,7 @@ const App: React.FC = () => {
                 Trasforma i tuoi dati in <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">Decisioni Strategiche</span>
               </h1>
               <p className="text-lg text-slate-600 max-w-2xl mx-auto leading-relaxed">
-                Carica il tuo bilancio o file Excel finanziario. La nostra AI analizzerà i dati, calcolerà i KPI e genererà un report professionale in secondi.
+                Carica bilanci multipli (PDF, Excel, CSV). La nostra AI incrocia i dati, calcola i trend pluriennali e genera un report consolidato.
               </p>
             </div>
             
@@ -131,13 +131,13 @@ const App: React.FC = () => {
               </div>
             
             <div className="w-full max-w-xl">
-              <FileUpload onFileSelect={handleFileSelect} />
+              <FileUpload onFilesSelected={handleFilesSelect} />
             </div>
 
             <div className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-8 w-full max-w-4xl text-center">
                 <div className="p-4">
-                    <div className="font-bold text-slate-800 mb-1">Analisi Istantanea</div>
-                    <p className="text-sm text-slate-500">Dal file grezzo a insight completi in meno di 30 secondi.</p>
+                    <div className="font-bold text-slate-800 mb-1">Analisi Multi-File</div>
+                    <p className="text-sm text-slate-500">Carica P&L 2022, SP 2023 e note integrative insieme.</p>
                 </div>
                  <div className="p-4">
                     <div className="font-bold text-slate-800 mb-1">Grafici Intelligenti</div>
@@ -203,7 +203,7 @@ const App: React.FC = () => {
                     onClick={handleReset}
                     className="px-6 py-2.5 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors font-medium shadow-md hover:shadow-lg"
                     >
-                    Riprova con un altro file
+                    Riprova con altri file
                     </button>
                 </div>
             )}
