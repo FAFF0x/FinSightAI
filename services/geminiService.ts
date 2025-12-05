@@ -11,20 +11,57 @@ const languageMap: Record<Language, string> = {
   de: "Deutsch"
 };
 
-export const analyzeFinancialData = async (fileInput: ProcessedFile, language: Language = 'it'): Promise<FinancialAnalysis> => {
-  
-  // FIXED: Access process.env.API_KEY directly wrapped in try-catch.
-  // This allows bundlers (Vite, Webpack, Vercel) to perform string replacement (e.g., replacing 'process.env.API_KEY' with '"AIza..."')
-  // even if the 'process' object does not exist at runtime in the browser.
-  let apiKey: string | undefined;
+// Helper to safely access env vars without crashing in strict environments
+const getEnv = (key: string): string | undefined => {
   try {
-    apiKey = process.env.API_KEY;
+    // @ts-ignore
+    return process.env[key];
   } catch (e) {
-    console.warn("Impossible to access process.env directly. This is expected in some browsers if the key was not replaced by the bundler.");
+    return undefined;
+  }
+};
+
+const getViteEnv = (key: string): string | undefined => {
+  try {
+     // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
+       // @ts-ignore
+      return import.meta.env[key];
+    }
+  } catch(e) {
+    return undefined;
+  }
+  return undefined;
+}
+
+export const analyzeFinancialData = async (
+  fileInput: ProcessedFile, 
+  language: Language = 'it',
+  manualApiKey?: string
+): Promise<FinancialAnalysis> => {
+  
+  let apiKey = manualApiKey;
+
+  // If no manual key provided, try to find it in the environment
+  if (!apiKey) {
+    const keysToCheck = [
+      'REACT_APP_API_KEY',
+      'VITE_API_KEY',
+      'NEXT_PUBLIC_API_KEY',
+      'API_KEY'
+    ];
+
+    for (const keyName of keysToCheck) {
+      const val = getEnv(keyName) || getViteEnv(keyName);
+      if (val) {
+        apiKey = val;
+        break;
+      }
+    }
   }
 
   if (!apiKey) {
-    throw new Error("API Key non trovata. Verifica le Environment Variables su Vercel (Key: 'API_KEY'). Se usi framework come CRA/Vite, potresti dover configurare il bundler per esporre questa variabile.");
+    throw new Error("MISSING_API_KEY");
   }
 
   const ai = new GoogleGenAI({ apiKey });

@@ -6,32 +6,57 @@ import { Report } from './components/Report';
 import { processFinancialFile } from './services/excelService';
 import { analyzeFinancialData } from './services/geminiService';
 import { AnalysisStatus, FinancialAnalysis, Language } from './types';
-import { BarChart3, Globe, AlertTriangle } from 'lucide-react';
+import { BarChart3, Globe, AlertTriangle, Key } from 'lucide-react';
 
 const App: React.FC = () => {
   const [status, setStatus] = useState<AnalysisStatus>('idle');
   const [analysis, setAnalysis] = useState<FinancialAnalysis | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [language, setLanguage] = useState<Language>('it');
+  
+  // State for fallback manual API key
+  const [manualKey, setManualKey] = useState<string>('');
+  const [showKeyInput, setShowKeyInput] = useState(false);
+  const [currentFile, setCurrentFile] = useState<File | null>(null);
 
   const handleFileSelect = async (file: File) => {
+    setCurrentFile(file);
+    await runAnalysis(file, manualKey);
+  };
+
+  const runAnalysis = async (file: File, key?: string) => {
     setStatus('parsing');
     setError(null);
     try {
       // 1. Parse File (Excel to JSON or PDF to Base64)
       const processedFile = await processFinancialFile(file);
       
-      // 2. Analyze with AI (Pass selected language)
+      // 2. Analyze with AI (Pass selected language and optional key)
       setStatus('analyzing');
-      const result = await analyzeFinancialData(processedFile, language);
+      const result = await analyzeFinancialData(processedFile, language, key);
       
       // 3. Complete
       setAnalysis(result);
       setStatus('complete');
+      setShowKeyInput(false); // Hide input on success
     } catch (err: any) {
       console.error(err);
-      setError(err.message || "Si è verificato un errore imprevisto.");
-      setStatus('error');
+      if (err.message === "MISSING_API_KEY") {
+        setError("API Key mancante.");
+        setShowKeyInput(true); // Trigger UI to ask for key
+        setStatus('error');
+      } else {
+        setError(err.message || "Si è verificato un errore imprevisto.");
+        setStatus('error');
+      }
+    }
+  };
+
+  const handleManualKeySubmit = () => {
+    if (manualKey.trim().length > 10 && currentFile) {
+        runAnalysis(currentFile, manualKey);
+    } else {
+        alert("Inserisci una chiave valida.");
     }
   };
 
@@ -39,6 +64,7 @@ const App: React.FC = () => {
     setStatus('idle');
     setAnalysis(null);
     setError(null);
+    setCurrentFile(null);
   };
 
   return (
@@ -69,7 +95,7 @@ const App: React.FC = () => {
                     <option value="de">Deutsch</option>
                   </select>
               </div>
-              <span className="text-xs font-medium px-3 py-1 bg-slate-100 rounded-full text-slate-500">v1.2</span>
+              <span className="text-xs font-medium px-3 py-1 bg-slate-100 rounded-full text-slate-500">v1.3</span>
             </div>
           </div>
         </div>
@@ -138,24 +164,49 @@ const App: React.FC = () => {
             <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-6">
                 <AlertTriangle size={32} />
             </div>
-            <h3 className="text-xl font-bold text-slate-800 mb-2">Errore durante l'analisi</h3>
-            <p className="text-slate-500 mb-6">{error}</p>
-            <div className="flex justify-center gap-4">
-                <button 
-                onClick={handleReset}
-                className="px-6 py-2.5 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors font-medium shadow-md hover:shadow-lg"
-                >
-                Riprova
-                </button>
-                 <a 
-                    href="https://aistudio.google.com/app/apikey" 
-                    target="_blank" 
-                    rel="noreferrer"
-                    className="px-6 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors font-medium"
-                 >
-                    Ottieni API Key
-                 </a>
-            </div>
+            
+            <h3 className="text-xl font-bold text-slate-800 mb-2">
+                {showKeyInput ? "Configurazione richiesta" : "Errore durante l'analisi"}
+            </h3>
+            
+            <p className="text-slate-500 mb-6">
+                {showKeyInput 
+                    ? "Non abbiamo trovato una API Key configurata nel server. Inseriscila qui sotto per continuare." 
+                    : error}
+            </p>
+
+            {showKeyInput ? (
+                <div className="flex flex-col gap-4">
+                    <div className="relative">
+                        <Key className="absolute left-3 top-3 text-slate-400" size={18} />
+                        <input 
+                            type="password" 
+                            placeholder="Incolla qui la tua Google Gemini API Key" 
+                            className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                            value={manualKey}
+                            onChange={(e) => setManualKey(e.target.value)}
+                        />
+                    </div>
+                    <button 
+                        onClick={handleManualKeySubmit}
+                        className="w-full py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-colors"
+                    >
+                        Avvia Analisi
+                    </button>
+                    <div className="text-xs text-slate-400 mt-2">
+                        Non hai una chiave? <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">Generala gratis qui</a>.
+                    </div>
+                </div>
+            ) : (
+                <div className="flex justify-center gap-4">
+                    <button 
+                    onClick={handleReset}
+                    className="px-6 py-2.5 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors font-medium shadow-md hover:shadow-lg"
+                    >
+                    Riprova con un altro file
+                    </button>
+                </div>
+            )}
           </div>
         )}
       </main>
