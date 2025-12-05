@@ -1,0 +1,5 @@
+{
+  "name": "FinSight AI",
+  "description": "Advanced financial analysis tool that turns Excel data into professional strategic insights and visualizations using Gemini 2.5.",
+  "requestFramePermissions": []
+}
