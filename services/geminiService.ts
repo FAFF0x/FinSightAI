@@ -11,52 +11,43 @@ const languageMap: Record<Language, string> = {
   de: "Deutsch"
 };
 
-// Helper to safely access env vars without crashing in strict environments
-const getEnv = (key: string): string | undefined => {
-  try {
-    // @ts-ignore
-    return process.env[key];
-  } catch (e) {
-    return undefined;
-  }
-};
-
-const getViteEnv = (key: string): string | undefined => {
-  try {
-     // @ts-ignore
-    if (typeof import.meta !== 'undefined' && import.meta.env) {
-       // @ts-ignore
-      return import.meta.env[key];
-    }
-  } catch(e) {
-    return undefined;
-  }
-  return undefined;
-}
-
 export const analyzeFinancialData = async (
   fileInput: ProcessedFile, 
   language: Language = 'it',
   manualApiKey?: string
 ): Promise<FinancialAnalysis> => {
   
+  // 1. Prioritize Manual Key (if user entered one in UI)
   let apiKey = manualApiKey;
 
-  // If no manual key provided, try to find it in the environment
+  // 2. If no manual key, check Environment Variables explicitly.
+  // CRITICAL: We must access these properties STATICALLY (e.g., process.env.API_KEY) 
+  // and NOT dynamically (e.g., process.env[key]) so that bundlers (Vite, Webpack, Vercel) 
+  // can detect and replace them with the actual values during build time.
+  
   if (!apiKey) {
-    const keysToCheck = [
-      'REACT_APP_API_KEY',
-      'VITE_API_KEY',
-      'NEXT_PUBLIC_API_KEY',
-      'API_KEY'
-    ];
-
-    for (const keyName of keysToCheck) {
-      const val = getEnv(keyName) || getViteEnv(keyName);
-      if (val) {
-        apiKey = val;
-        break;
+    try {
+      // Check standard React/Node env var
+      if (typeof process !== 'undefined' && process.env) {
+        apiKey = process.env.REACT_APP_API_KEY || 
+                 process.env.NEXT_PUBLIC_API_KEY || 
+                 process.env.API_KEY;
       }
+    } catch (e) {
+      // Ignore errors if process is not defined
+    }
+  }
+
+  if (!apiKey) {
+    try {
+      // Check Vite specific env var
+      // @ts-ignore
+      if (typeof import.meta !== 'undefined' && import.meta.env) {
+        // @ts-ignore
+        apiKey = import.meta.env.VITE_API_KEY || import.meta.env.API_KEY;
+      }
+    } catch (e) {
+      // Ignore errors if import.meta is not defined
     }
   }
 
