@@ -3,7 +3,8 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { FinancialAnalysis, Language } from "../types";
 import { ProcessedFile } from "./excelService";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Removed global initialization to prevent "White Screen" crash on load
+// const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const languageMap: Record<Language, string> = {
   it: "Italiano",
@@ -15,6 +16,17 @@ const languageMap: Record<Language, string> = {
 
 export const analyzeFinancialData = async (fileInput: ProcessedFile, language: Language = 'it'): Promise<FinancialAnalysis> => {
   
+  // Initialize AI client strictly when needed (Lazy Initialization)
+  // This ensures the app UI renders even if the environment variable is missing initially.
+  // We use a safe check for 'process' to avoid ReferenceError in some browser environments.
+  const apiKey = (typeof process !== 'undefined' && process.env) ? process.env.API_KEY : undefined;
+
+  if (!apiKey) {
+    throw new Error("API Key non configurata. Assicurati che la variabile d'ambiente 'API_KEY' sia impostata nel progetto (es. su Vercel o .env).");
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+
   const targetLang = languageMap[language];
 
   // Increased complexity prompt for deeper analysis
