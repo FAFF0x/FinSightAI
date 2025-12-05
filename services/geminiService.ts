@@ -3,9 +3,6 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { FinancialAnalysis, Language } from "../types";
 import { ProcessedFile } from "./excelService";
 
-// Removed global initialization to prevent "White Screen" crash on load
-// const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
 const languageMap: Record<Language, string> = {
   it: "Italiano",
   en: "English",
@@ -16,13 +13,18 @@ const languageMap: Record<Language, string> = {
 
 export const analyzeFinancialData = async (fileInput: ProcessedFile, language: Language = 'it'): Promise<FinancialAnalysis> => {
   
-  // Initialize AI client strictly when needed (Lazy Initialization)
-  // This ensures the app UI renders even if the environment variable is missing initially.
-  // We use a safe check for 'process' to avoid ReferenceError in some browser environments.
-  const apiKey = (typeof process !== 'undefined' && process.env) ? process.env.API_KEY : undefined;
+  // FIXED: Access process.env.API_KEY directly wrapped in try-catch.
+  // This allows bundlers (Vite, Webpack, Vercel) to perform string replacement (e.g., replacing 'process.env.API_KEY' with '"AIza..."')
+  // even if the 'process' object does not exist at runtime in the browser.
+  let apiKey: string | undefined;
+  try {
+    apiKey = process.env.API_KEY;
+  } catch (e) {
+    console.warn("Impossible to access process.env directly. This is expected in some browsers if the key was not replaced by the bundler.");
+  }
 
   if (!apiKey) {
-    throw new Error("API Key non configurata. Assicurati che la variabile d'ambiente 'API_KEY' sia impostata nel progetto (es. su Vercel o .env).");
+    throw new Error("API Key non trovata. Verifica le Environment Variables su Vercel (Key: 'API_KEY'). Se usi framework come CRA/Vite, potresti dover configurare il bundler per esporre questa variabile.");
   }
 
   const ai = new GoogleGenAI({ apiKey });

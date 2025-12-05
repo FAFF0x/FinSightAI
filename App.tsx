@@ -6,7 +6,7 @@ import { Report } from './components/Report';
 import { processFinancialFile } from './services/excelService';
 import { analyzeFinancialData } from './services/geminiService';
 import { AnalysisStatus, FinancialAnalysis, Language } from './types';
-import { BarChart3, Globe } from 'lucide-react';
+import { BarChart3, Globe, AlertTriangle } from 'lucide-react';
 
 const App: React.FC = () => {
   const [status, setStatus] = useState<AnalysisStatus>('idle');
@@ -134,15 +134,28 @@ const App: React.FC = () => {
         )}
 
         {status === 'error' && (
-          <div className="max-w-md mx-auto mt-20 p-6 bg-red-50 border border-red-200 rounded-xl text-center animate-in zoom-in duration-300">
-            <div className="text-red-500 font-semibold text-lg mb-2">Errore Analisi</div>
-            <p className="text-red-700 mb-6">{error}</p>
-            <button 
-              onClick={handleReset}
-              className="px-4 py-2 bg-white border border-red-300 text-red-600 rounded-lg hover:bg-red-50 transition-colors"
-            >
-              Riprova
-            </button>
+          <div className="max-w-xl mx-auto mt-20 p-8 bg-white border border-rose-200 rounded-2xl shadow-lg text-center animate-in zoom-in duration-300">
+            <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                <AlertTriangle size={32} />
+            </div>
+            <h3 className="text-xl font-bold text-slate-800 mb-2">Errore durante l'analisi</h3>
+            <p className="text-slate-500 mb-6">{error}</p>
+            <div className="flex justify-center gap-4">
+                <button 
+                onClick={handleReset}
+                className="px-6 py-2.5 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors font-medium shadow-md hover:shadow-lg"
+                >
+                Riprova
+                </button>
+                 <a 
+                    href="https://aistudio.google.com/app/apikey" 
+                    target="_blank" 
+                    rel="noreferrer"
+                    className="px-6 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors font-medium"
+                 >
+                    Ottieni API Key
+                 </a>
+            </div>
           </div>
         )}
       </main>
